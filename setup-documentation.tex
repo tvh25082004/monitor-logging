@@ -1,0 +1,376 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+
+\geometry{margin=2.5cm}
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Hệ Thống Giám Sát Logs}
+\lhead{PLG Stack}
+\cfoot{\thepage}
+
+% Cấu hình cho code blocks
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10},
+    commentstyle=\color{green!60!black},
+    keywordstyle=\color{blue},
+    stringstyle=\color{red},
+    showstringspaces=false,
+    tabsize=2
+}
+
+\title{Hướng Dẫn Cài Đặt Hệ Thống Giám Sát Logs \\
+       \Large PLG Stack (Promtail - Loki - Grafana)}
+\author{Monitoring Setup Guide}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Giới Thiệu}
+
+Hệ thống này sử dụng PLG Stack để thu thập, lưu trữ và hiển thị logs từ các nguồn khác nhau:
+
+\begin{itemize}
+    \item \textbf{Promtail}: Thu thập logs từ các nguồn
+    \item \textbf{Loki}: Lưu trữ và indexing logs
+    \item \textbf{Grafana}: Visualize logs và tạo dashboards
+\end{itemize}
+
+\section{Các Loại Log Thu Thập}
+
+\subsection{Application Logs}
+Logs từ NestJS backend với Morgan logging:
+\begin{itemize}
+    \item Vị trí: \texttt{/app-logs/*.log}
+    \item Nội dung: HTTP requests, API calls, application errors
+\end{itemize}
+
+\subsection{Audit Logs}
+\begin{itemize}
+    \item \textbf{Application}: User actions, security events (\texttt{/audit-logs/application/})
+    \item \textbf{MongoDB}: Database operations, authentication (\texttt{/audit-logs/mongodb/})
+    \item \textbf{Postgres}: Database queries, modifications (\texttt{/audit-logs/postgres/})
+\end{itemize}
+
+\subsection{Access Logs}
+Logs từ Nginx:
+\begin{itemize}
+    \item Access logs: \texttt{/var/log/nginx/access.log}
+    \item Error logs: \texttt{/var/log/nginx/error.log}
+\end{itemize}
+
+\subsection{System Logs}
+OS logs:
+\begin{itemize}
+    \item Syslog: \texttt{/var/log/syslog}
+    \item Auth: \texttt{/var/log/auth.log}
+    \item Kernel: \texttt{/var/log/kern.log}
+\end{itemize}
+
+\section{Cài Đặt Hệ Thống}
+
+\subsection{Bước 1: Kiểm Tra Docker}
+
+\begin{lstlisting}[language=bash]
+# Kiểm tra Docker version
+docker --version
+
+# Kiểm tra Docker Compose version
+docker compose version
+\end{lstlisting}
+
+\subsection{Bước 2: Tạo Cấu Trúc Thư Mục}
+
+\begin{lstlisting}[language=bash]
+mkdir -p logs app-logs nginx-logs
+mkdir -p audit-logs/mongodb
+mkdir -p audit-logs/postgres
+mkdir -p audit-logs/application
+\end{lstlisting}
+
+\subsection{Bước 3: Tạo File Cấu Hình}
+
+\subsubsection{Docker Compose (\texttt{docker-compose.yml})}
+
+\begin{lstlisting}[language=yaml]
+version: '3.8'
+
+services:
+  loki:
+    image: grafana/loki:2.9.0
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    networks:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml
+      - /var/log:/var/log:ro
+      - ./logs:/logs:ro
+      - ./nginx-logs:/var/log/nginx:ro
+      - ./app-logs:/app-logs:ro
+      - ./audit-logs:/audit-logs:ro
+    networks:
+      - monitoring
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources
+    networks:
+      - monitoring
+    depends_on:
+      - loki
+
+volumes:
+  loki-data:
+  grafana-data:
+
+networks:
+  monitoring:
+    driver: bridge
+\end{lstlisting}
+
+\subsubsection{Loki Config (\texttt{loki-config.yml})}
+
+\begin{lstlisting}[language=yaml]
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+
+limits_config:
+  retention_period: 168h
+\end{lstlisting}
+
+\subsubsection{Promtail Config (\texttt{promtail-config.yml})}
+
+\begin{lstlisting}[language=yaml]
+server:
+  http_listen_port: 9080
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Application Logs
+  - job_name: application-logs
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: application
+          __path__: /app-logs/*.log
+
+  # Nginx Access Logs
+  - job_name: nginx-access
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: nginx
+          log_type: access
+          __path__: /var/log/nginx/access.log
+
+  # MongoDB Audit
+  - job_name: mongodb-audit
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: mongodb
+          log_type: audit
+          __path__: /audit-logs/mongodb/*.log
+
+  # Postgres Audit
+  - job_name: postgres-audit
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: postgres
+          log_type: audit
+          __path__: /audit-logs/postgres/*.log
+\end{lstlisting}
+
+\subsection{Bước 4: Khởi Động Hệ Thống}
+
+\begin{lstlisting}[language=bash]
+# Start các container
+docker compose up -d
+
+# Kiểm tra trạng thái
+docker compose ps
+
+# Xem logs
+docker compose logs -f
+\end{lstlisting}
+
+\subsection{Bước 5: Truy Cập Grafana}
+
+\begin{itemize}
+    \item URL: \texttt{http://localhost:3000}
+    \item Username: \texttt{admin}
+    \item Password: \texttt{admin}
+\end{itemize}
+
+\section{Cấu Hình Các Thành Phần}
+
+\subsection{NestJS Logger}
+
+Sử dụng Winston logger với file \texttt{config/logger.config.ts}:
+
+\begin{lstlisting}[language=typescript]
+import { WinstonModule } from 'nest-winston';
+import * as winston from 'winston';
+import * as DailyRotateFile from 'winston-daily-rotate-file';
+
+export const loggerConfig = {
+  transports: [
+    new winston.transports.Console(),
+    new DailyRotateFile({
+      filename: 'app-logs/%DATE%.log',
+      datePattern: 'YYYY-MM-DD',
+      maxSize: '20m',
+      maxFiles: '14d',
+    }),
+  ],
+};
+\end{lstlisting}
+
+\subsection{MongoDB Audit}
+
+Sử dụng file \texttt{config/mongodb-audit.conf}:
+
+\begin{lstlisting}[language=yaml]
+auditLog:
+  destination: file
+  format: JSON
+  path: /audit-logs/mongodb/mongodb-audit.log
+
+operationProfiling:
+  slowOpThresholdMs: 200
+  mode: slowOp
+\end{lstlisting}
+
+\subsection{Postgres Audit}
+
+Chạy SQL trong \texttt{config/postgres-audit.sql}:
+
+\begin{lstlisting}[language=sql]
+-- Enable pg_stat_statements
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+-- Configure trong postgresql.conf:
+-- log_statement = 'mod'
+-- log_min_duration_statement = 2000
+\end{lstlisting}
+
+\section{Truy Vấn Logs trong Grafana}
+
+\subsection{Query Cơ Bản}
+
+\begin{itemize}
+    \item \textbf{Application}: \lstinline[language=bash]{{job="application"}}
+    \item \textbf{Nginx}: \lstinline[language=bash]{{job="nginx"}}
+    \item \textbf{MongoDB}: \lstinline[language=bash]{{job="mongodb"}}
+    \item \textbf{Errors}: \lstinline[language=bash]{{job="application"} |= "error"}
+    \item \textbf{Slow queries}: \lstinline[language=bash]{{job="mongodb", log_type="slowquery"}}
+\end{itemize}
+
+\subsection{Query Mẫu}
+
+\begin{lstlisting}[language=bash]
+# Lọc logs theo level
+{job="application"} |= "error"
+
+# Search trong nội dung
+{job="nginx", log_type="access"} |~ "POST"
+
+# Thống kê theo time range
+rate({job="application"}[5m])
+
+# Combine multiple labels
+{job=~"nginx|application"}
+\end{lstlisting}
+
+\section{Kiểm Tra và Xử Lý Lỗi}
+
+\subsection{Kiểm Tra Containers}
+
+\begin{lstlisting}[language=bash]
+# Xem logs của Loki
+docker logs loki
+
+# Xem logs của Promtail
+docker logs promtail
+
+# Kiểm tra Promtail positions
+docker exec promtail cat /tmp/positions.yaml
+\end{lstlisting}
+
+\subsection{Test Log Generation}
+
+\begin{lstlisting}[language=bash]
+# Tạo test log
+echo "$(date) - Test application log" >> app-logs/test.log
+
+# Kiểm tra trong Grafana
+# Query: {job="application"} |= "Test"
+\end{lstlisting}
+
+\subsection{Troubleshooting}
+
+\begin{itemize}
+    \item \textbf{Không có logs}: Kiểm tra file paths trong \texttt{promtail-config.yml}
+    \item \textbf{Container không start}: Kiểm tra port conflicts
+    \item \textbf{Logs không update}: Restart Promtail
+\end{itemize}
+
+\section{Kết Luận}
+
+Hệ thống PLG Stack đã được cài đặt với khả năng thu thập 4 loại log:
+\begin{enumerate}
+    \item Application Logs (NestJS/Morgan)
+    \item Audit Logs (Application, MongoDB, Postgres)
+    \item Access Logs (Nginx)
+    \item System Logs (OS)
+\end{enumerate}
+
+Tất cả logs được thu thập bởi Promtail, lưu trữ tại Loki, và hiển thị trên Grafana dashboard.
+
+\end{document}
+

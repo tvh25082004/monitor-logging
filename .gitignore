@@ -1,0 +1,40 @@
+# Docker volumes
+loki-data/
+grafana-data/
+
+# Log files
+logs/**
+*.log
+app-logs/**
+nginx-logs/**
+audit-logs/**
+
+# Keep directory structure but ignore content
+!logs/.gitkeep
+!app-logs/.gitkeep
+!nginx-logs/.gitkeep
+!audit-logs/.gitkeep
+!audit-logs/mongodb/.gitkeep
+!audit-logs/postgres/.gitkeep
+!audit-logs/application/.gitkeep
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+

@@ -1,0 +1,41 @@
+# Nginx Configuration for Logging
+# Add this to your nginx configuration file
+
+http {
+    log_format combined_with_host '$remote_addr - $remote_user [$time_local] '
+                                   '"$request" $status $body_bytes_sent '
+                                   '"$http_referer" "$http_user_agent" '
+                                   'rt=$request_time uct="$upstream_connect_time" '
+                                   'uht="$upstream_header_time" urt="$upstream_response_time"';
+
+    access_log /var/log/nginx/access.log combined_with_host;
+    error_log /var/log/nginx/error.log warn;
+
+    server {
+        listen 80;
+        server_name example.com;
+
+        # Custom log format for detailed tracking
+        log_format custom '$remote_addr - $remote_user [$time_local] '
+                          '"$request" $status $bytes_sent '
+                          '"$http_referer" "$http_user_agent" '
+                          'rt=$request_time '
+                          'uct="$upstream_connect_time" '
+                          'uht="$upstream_header_time" '
+                          'urt="$upstream_response_time" '
+                          'host="$host" '
+                          'referer="$http_referer"';
+
+        access_log /var/log/nginx/access.log custom;
+        error_log /var/log/nginx/error.log;
+
+        location / {
+            proxy_pass http://backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
+

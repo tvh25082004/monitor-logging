@@ -1,0 +1,82 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Application Logs (NestJS/Morgan)
+  - job_name: application-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: application
+          service: backend
+          __path__: /app-logs/*.log
+
+  # Nginx Access Logs
+  - job_name: nginx-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          log_type: access
+          __path__: /nginx-logs/*.log
+
+  # Nginx Error Logs
+  - job_name: nginx-error
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          log_type: error
+          __path__: /nginx-logs/*.log
+
+  # MongoDB Audit Logs
+  - job_name: mongodb-audit
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: mongodb
+          log_type: audit
+          __path__: /audit-logs/mongodb/*.log
+
+  # MongoDB Slow Query Logs
+  - job_name: mongodb-slow-query
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: mongodb
+          log_type: slowquery
+          __path__: /audit-logs/mongodb/slow-query.log
+
+  # Postgres Audit Logs
+  - job_name: postgres-audit
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: postgres
+          log_type: audit
+          __path__: /audit-logs/postgres/*.log
+
+  # Application Audit Logs
+  - job_name: application-audit
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: application
+          log_type: audit
+          __path__: /audit-logs/application/*.log
+
+
