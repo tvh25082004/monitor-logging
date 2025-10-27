@@ -360,6 +360,106 @@ echo "$(date) - Test application log" >> app-logs/test.log
     \item \textbf{Logs không update}: Restart Promtail
 \end{itemize}
 
+\section{Các Lệnh Quản Lý}
+
+\subsection{Quản Lý Containers}
+
+\begin{lstlisting}[language=bash]
+# Khởi động hệ thống
+docker compose up -d
+
+# Dừng hệ thống
+docker compose down
+
+# Xem logs
+docker compose logs -f
+
+# Restart service
+docker compose restart promtail
+
+# Xem trạng thái
+docker compose ps
+\end{lstlisting}
+
+\subsection{Kiểm Tra Hệ Thống}
+
+\begin{lstlisting}[language=bash]
+# Check Promtail config
+docker exec promtail cat /etc/promtail/config.yml
+
+# Check Promtail positions
+docker exec promtail cat /tmp/positions.yaml
+
+# Check Loki metrics
+curl http://localhost:3100/metrics
+\end{lstlisting}
+
+\section{Ví Dụ Truy Vấn LogQL}
+
+\begin{lstlisting}[language=bash]
+# Application logs với errors
+{job="application"} |= "error"
+
+# Logs trong khoảng thời gian
+{job="nginx"} [5m]
+
+# So sánh với regex
+{job="application"} |~ "POST.*200"
+
+# Aggregate functions
+sum by (level) (count_over_time({job="application"}[5m]))
+
+# Rate của requests
+rate({job="nginx", log_type="access"}[5m])
+\end{lstlisting}
+
+\section{Tạo Dashboard}
+
+Trong Grafana:
+
+\begin{enumerate}
+    \item Vào \textbf{Dashboards > New Dashboard}
+    \item Chọn \textbf{Add Visualization}
+    \item Chọn Data Source là \textbf{Loki}
+    \item Nhập query: \lstinline{{job="application"}}
+    \item Chọn visualization type: \textbf{Logs}
+    \item Save dashboard
+\end{enumerate}
+
+\section{Monitoring \& Alerting}
+
+\subsection{Setup Alerts}
+
+\begin{lstlisting}[language=bash]
+# Ví dụ: Alert khi có nhiều errors
+sum(rate({job="application"} |= "error"[5m])) > 10
+\end{lstlisting}
+
+\subsection{Cấu Trúc Thư Mục}
+
+\begin{lstlisting}
+Monitoring/
+├── docker-compose.yml
+├── loki-config.yml
+├── promtail-config.yml
+├── grafana-datasources.yml
+├── setup.sh
+├── README.md
+├── QUICKSTART.md
+├── setup-documentation.tex
+├── config/
+│   ├── logger.config.ts
+│   ├── mongodb-audit.conf
+│   ├── postgres-audit.sql
+│   └── nginx.conf.example
+├── app-logs/
+├── nginx-logs/
+└── audit-logs/
+    ├── mongodb/
+    ├── postgres/
+    └── application/
+\end{lstlisting}
+
 \section{Kết Luận}
 
 Hệ thống PLG Stack đã được cài đặt với khả năng thu thập 4 loại log:
@@ -367,10 +467,18 @@ Hệ thống PLG Stack đã được cài đặt với khả năng thu thập 4 
     \item Application Logs (NestJS/Morgan)
     \item Audit Logs (Application, MongoDB, Postgres)
     \item Access Logs (Nginx)
-    \item System Logs (OS)
+    \item System Logs (OS - đã loại bỏ để tránh permission issues)
 \end{enumerate}
 
 Tất cả logs được thu thập bởi Promtail, lưu trữ tại Loki, và hiển thị trên Grafana dashboard.
+
+\subsection{Truy Cập}
+
+\begin{itemize}
+    \item \textbf{Grafana}: http://localhost:3000 (admin/admin)
+    \item \textbf{Loki}: http://localhost:3100
+    \item \textbf{Promtail}: chạy trong container, expose port 9080
+\end{itemize}
 
 \end{document}
 
